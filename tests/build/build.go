@@ -102,6 +102,7 @@ var _ = framework.BuildSuiteDescribe("Build service E2E tests", ginkgo.Label("bu
 				gomega.Expect(f.AsKubeAdmin.HasController.DeleteAllApplicationsInASpecificNamespace(testNamespace, time.Minute*5)).To(gomega.Succeed())
 				gomega.Expect(gitClient.DeleteRepositoryIfExists(helloWorldRepository)).To(gomega.Succeed())
 			}
+		})
 
 		ginkgo.When("a new component without specified branch is created and with visibility private", ginkgo.Label("pac-custom-default-branch"), func() {
 			var componentObj appservice.ComponentSpec
@@ -1647,7 +1648,6 @@ var _ = framework.BuildSuiteDescribe("Build service E2E tests", ginkgo.Label("bu
 		ginkgo.Entry("github", git.GitHubProvider, "gh"),
 		ginkgo.Entry("gitlab", git.GitLabProvider, "gl"),
 	)
-})
 })
 
 func setupGitProvider(f *framework.Framework, gitProvider git.GitProvider) (git.Client, string, string) {
