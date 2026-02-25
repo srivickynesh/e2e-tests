@@ -674,6 +674,7 @@ var _ = framework.BuildSuiteDescribe("Build templates E2E test", ginkgo.Label("b
 
 					var gitRevision, gitURL, imageWithDigest string
 					var defaultECP *ecp.EnterpriseContractPolicy
+					var ecPipelineRun *tektonpipeline.PipelineRun
 
 					ginkgo.BeforeAll(func() {
 						// resolve the gitURL and gitRevision
@@ -694,6 +695,18 @@ var _ = framework.BuildSuiteDescribe("Build templates E2E test", ginkgo.Label("b
 
 						err = f.AsKubeAdmin.TektonController.AwaitAttestationAndSignature(imageWithDigest, constants.ChainsAttestationTimeout)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					})
+					ginkgo.AfterAll(func() {
+						if !ginkgo.CurrentSpecReport().Failed() {
+							err = f.AsKubeAdmin.TektonController.RemoveFinalizerFromPipelineRun(ecPipelineRun, constants.E2ETestFinalizerName)
+							if err != nil {
+								ginkgo.GinkgoWriter.Printf("error removing e2e test finalizer from %s : %v\n", ecPipelineRun.GetName(), err)
+							}
+							err = f.AsKubeAdmin.TektonController.DeletePipelineRun(ecPipelineRun.Name, ecPipelineRun.Namespace)
+							if err != nil {
+								gomega.Expect(err.Error()).To(gomega.ContainSubstring("not found"))
+							}
+						}
 					})
 
 					for _, pathInRepo := range ecPipelines {
@@ -719,43 +732,31 @@ var _ = framework.BuildSuiteDescribe("Build templates E2E test", ginkgo.Label("b
 							)
 							gomega.Expect(f.AsKubeAdmin.TektonController.CreateOrUpdatePolicyConfiguration(testNamespace, policy)).To(gomega.Succeed())
 
-							pr, err := f.AsKubeAdmin.TektonController.RunPipeline(generator, testNamespace, int(ecPipelineRunTimeout.Seconds()))
+							ecPipelineRun, err = f.AsKubeAdmin.TektonController.RunPipeline(generator, testNamespace, int(ecPipelineRunTimeout.Seconds()))
 							gomega.Expect(err).NotTo(gomega.HaveOccurred())
-							// Skipping the cleanup to debug the intermittent issue
-							// defer func(pr *tektonpipeline.PipelineRun) {
-							// 	err = f.AsKubeAdmin.TektonController.RemoveFinalizerFromPipelineRun(pr, constants.E2ETestFinalizerName)
-							// 	if err != nil {
-							// 		ginkgo.GinkgoWriter.Printf("error removing e2e test finalizer from %s : %v\n", pr.GetName(), err)
-							// 	}
-							// 	// Avoid blowing up PipelineRun usage
-							// 	err := f.AsKubeAdmin.TektonController.DeletePipelineRun(pr.Name, pr.Namespace)
-							// 	if err != nil {
-							// 		gomega.Expect(err.Error()).To(gomega.ContainSubstring("not found"))
-							// 	}
-							// }(pr)
 
-							err = f.AsKubeAdmin.TektonController.AddFinalizerToPipelineRun(pr, constants.E2ETestFinalizerName)
-							gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("error while adding finalizer %q to the pipelineRun %q", constants.E2ETestFinalizerName, pr.GetName()))
+							err = f.AsKubeAdmin.TektonController.AddFinalizerToPipelineRun(ecPipelineRun, constants.E2ETestFinalizerName)
+							gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("error while adding finalizer %q to the pipelineRun %q", constants.E2ETestFinalizerName, ecPipelineRun.GetName()))
 
-							gomega.Expect(f.AsKubeAdmin.TektonController.WatchPipelineRun(pr.Name, testNamespace, int(ecPipelineRunTimeout.Seconds()))).To(gomega.Succeed())
+							gomega.Expect(f.AsKubeAdmin.TektonController.WatchPipelineRun(ecPipelineRun.Name, testNamespace, int(ecPipelineRunTimeout.Seconds()))).To(gomega.Succeed())
 
 							// Refresh our copy of the PipelineRun for latest results
-							pr, err = f.AsKubeAdmin.TektonController.GetPipelineRun(pr.Name, pr.Namespace)
+							ecPipelineRun, err = f.AsKubeAdmin.TektonController.GetPipelineRun(ecPipelineRun.Name, ecPipelineRun.Namespace)
 							gomega.Expect(err).NotTo(gomega.HaveOccurred())
-							ginkgo.GinkgoWriter.Printf("The PipelineRun %s in namespace %s has status.conditions: \n%#v\n", pr.Name, pr.Namespace, pr.Status.Conditions)
+							ginkgo.GinkgoWriter.Printf("The PipelineRun %s in namespace %s has status.conditions: \n%#v\n", ecPipelineRun.Name, ecPipelineRun.Namespace, ecPipelineRun.Status.Conditions)
 
 							// Added log for debugging the intermittent issue
-							ginkgo.GinkgoWriter.Printf("EC PipelineRun %s has labels: %+v\n", pr.Name, pr.Labels)
+							ginkgo.GinkgoWriter.Printf("EC PipelineRun %s has labels: %+v\n", ecPipelineRun.Name, ecPipelineRun.Labels)
 							// The UI uses this label to display additional information.
-							gomega.Expect(pr.Labels["build.appstudio.redhat.com/pipeline"]).To(gomega.Equal("enterprise-contract"))
+							gomega.Expect(ecPipelineRun.Labels["build.appstudio.redhat.com/pipeline"]).To(gomega.Equal("enterprise-contract"))
 
 							// The UI uses this label to display additional information.
-							tr, err := f.AsKubeAdmin.TektonController.GetTaskRunFromPipelineRun(f.AsKubeAdmin.CommonController.KubeRest(), pr, "verify")
+							tr, err := f.AsKubeAdmin.TektonController.GetTaskRunFromPipelineRun(f.AsKubeAdmin.CommonController.KubeRest(), ecPipelineRun, "verify")
 							gomega.Expect(err).NotTo(gomega.HaveOccurred())
-							ginkgo.GinkgoWriter.Printf("The TaskRun %s of PipelineRun %s  has status.conditions: \n%#v\n", tr.Name, pr.Name, tr.Status.Conditions)
+							ginkgo.GinkgoWriter.Printf("The TaskRun %s of PipelineRun %s  has status.conditions: \n%#v\n", tr.Name, ecPipelineRun.Name, tr.Status.Conditions)
 							gomega.Expect(tr.Labels["build.appstudio.redhat.com/pipeline"]).To(gomega.Equal("enterprise-contract"))
 
-							logs, err := f.AsKubeAdmin.TektonController.GetTaskRunLogs(pr.Name, "verify", pr.Namespace)
+							logs, err := f.AsKubeAdmin.TektonController.GetTaskRunLogs(ecPipelineRun.Name, "verify", ecPipelineRun.Namespace)
 							gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 							// The logs from the report step are used by the UI to display validation
