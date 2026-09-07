@@ -311,6 +311,9 @@ func (fc *ForgejoClient) ForkRepository(sourceProjectID, targetProjectID string)
 }
 
 // ForkRepositoryUsingLocalClone clones the source repository locally under a temp direcotry and pushes it to the target repo
+// Using local clone approach has an advantage of avoiding server side clone
+// which MigrateRepo uses internally inside `ForkRepository` method above and has chances of failing with 500 internal server errors
+// This approach will flush out any errors occuring during the repo cloning step
 func (fc *ForgejoClient) ForkRepositoryUsingLocalClone(sourceProjectID, targetProjectID string) error {
 	sourceOrg, sourceRepo := splitProjectID(sourceProjectID)
 	targetOrg, targetRepo := splitProjectID(targetProjectID)
